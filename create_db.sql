@@ -36,6 +36,24 @@ CREATE TABLE datasource (
   FOREIGN KEY (study_type) REFERENCES studies (id) 
 )
 
+CREATE TABLE sourcedirectory (
+  id INTEGER NOT NULL,
+  path VARCHAR(200),
+  source_type INTEGER,
+  added DATE,
+  inactive DATE,
+  PRIMARY KEY (id),
+  FOREIGN KEY (source_type) REFERENCES datasource (id)
+)
+
+CREATE TABLE updates (
+  id INTEGER NOT NULL,
+  import_date DATE,
+  new_subjects INTEGER,
+  new_records INTEGER,
+  PRIMARY KEY (id)
+)
+
 CREATE TABLE spirometry (
 	id INTEGER NOT NULL, 
 	subject_id INTEGER, 
