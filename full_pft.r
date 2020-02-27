@@ -3,6 +3,7 @@
 library(pdftools)
 library(stringr)
 library(lubridate)
+library(DBI)
 
 lung_func <- list(FEV1 = list('FEV1', 'FEV1.*'),
                   FVC = list('FVC', 'FVC.*'), 
@@ -60,4 +61,45 @@ extractPFT <- function(txt) {
               )
   
   c(ret, lapply(lung_func, function(x) {extractlungfunc(x[[1]], x[[2]], txt)}))
+}
+
+# Create database connection
+dbcon <- dbConnect(RSQLite::SQLite(), "./data/pfts.sqlite")
+
+paste0('INSERT INTO patients (fname, lname, rxr, dob) VALUES ("', 
+       p1$fname, '","', 
+       p1$lname, '","', 
+       p1$rxr, '","', 
+       p1$dob, '")')
+
+dbDisconnect(dbcon)
+
+
+updatepatient <- function(name, needed, source, con) {
+  if(needed) {
+    if(name %in% names(source) && !is.na(source[name])) {
+      dbExecute(con, paste0('UPDATE patients SET ', 
+                             name, ' = "', source[name], 
+                             '" WHERE rxr = "' ,
+                             source$rxr, '"'))
+    }
+  }
+}
+
+addpatient <- function(datlist, con) {
+  existing <- dbGetQuery(con, paste0('SELECT * FROM patients WHERE rxr = "',
+                                     datlist$rxr, '"'))
+
+  if(nrow(existing) > 0) {
+    # Add any extra details
+    notthere <- sapply(existing, is.na)
+    mapply(updatepatient, names(notthere), notthere, 
+           MoreArgs = list(source=datlist, con=con))
+  }
+  else {
+    dbAppendTable(con, "patients", 
+                  as.data.frame(datlist[names(datlist) %in% 
+                                          c("rxr", "lname", "fname", "sex", "dob")],
+                                stringsAsFactors = FALSE))
+  }
 }

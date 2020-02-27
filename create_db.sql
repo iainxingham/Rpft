@@ -3,38 +3,38 @@
  *
  *  Produce the database with
  *
- *		cat create_db.sql | sqlite3 pfts.sqlite
+ *		cat create_db.sql | sqlite3 ./data/pfts.sqlite
  */
-CREATE TABLE patient (
+ 
+CREATE TABLE patients (
 	id INTEGER NOT NULL, 
 	fname VARCHAR(100), 
 	lname VARCHAR(100), 
 	rxr VARCHAR(10), 
 	nhs VARCHAR(15), 
-	dob DATE, 
+	dob DATE,
+	sex VARCHAR(6),
 	PRIMARY KEY (id), 
 	UNIQUE (rxr)
-)
+);
 
 CREATE TABLE studies (
   id INTEGER NOT NULL,
   tag VARCHAR(10),
   description VARCHAR(50),
-
   PRIMARY KEY (id)
-)
+);
 
 CREATE TABLE datasource (
   id INTEGER NOT NULL,
   import_date DATE,
-  source_file VARCHAR(200)
+  source_file VARCHAR(200),
   subject_id INTEGER,
   study_type INTEGER,
-  
   PRIMARY KEY (id),
   FOREIGN KEY (subject_id) REFERENCES patient (id),
   FOREIGN KEY (study_type) REFERENCES studies (id) 
-)
+);
 
 CREATE TABLE sourcedirectory (
   id INTEGER NOT NULL,
@@ -44,7 +44,7 @@ CREATE TABLE sourcedirectory (
   inactive DATE,
   PRIMARY KEY (id),
   FOREIGN KEY (source_type) REFERENCES datasource (id)
-)
+);
 
 CREATE TABLE updates (
   id INTEGER NOT NULL,
@@ -52,7 +52,7 @@ CREATE TABLE updates (
   new_subjects INTEGER,
   new_records INTEGER,
   PRIMARY KEY (id)
-)
+);
 
 CREATE TABLE spirometry (
 	id INTEGER NOT NULL, 
@@ -82,7 +82,7 @@ CREATE TABLE spirometry (
 	PRIMARY KEY (id), 
 	FOREIGN KEY (subject_id) REFERENCES patient (id),
 	FOREIGN KEY (source_id) REFERENCES datasource (id)
-)
+);
 
 CREATE TABLE lungfunc (
 	id INTEGER NOT NULL, 
@@ -124,7 +124,7 @@ CREATE TABLE lungfunc (
 	FOREIGN KEY (spiro_id) REFERENCES spirometry (id), 
 	FOREIGN KEY (subject_id) REFERENCES patient (id),
 	FOREIGN KEY (source_id) REFERENCES datasource (id)
-)
+);
 
-INSERT INTO "studies"("tag", "description") VALUES ("FULL_PFT", "Full pulmonary function test")
-INSERT INTO "studies"("tag", "description") VALUES ("PFT_Spiro", "Spirometry (from lab PFT)")
+INSERT INTO "studies"("tag", "description") VALUES ("FULL_PFT", "Full pulmonary function test");
+INSERT INTO "studies"("tag", "description") VALUES ("PFT_Spiro", "Spirometry (from lab PFT)");
