@@ -4,6 +4,7 @@ library(pdftools)
 library(stringr)
 library(lubridate)
 library(DBI)
+library(log4r)
 
 lung_func <- list(FEV1 = list('FEV1', 'FEV1.*'),
                   FVC = list('FVC', 'FVC.*'), 
@@ -66,12 +67,6 @@ extractPFT <- function(txt) {
 # Create database connection
 dbcon <- dbConnect(RSQLite::SQLite(), "./data/pfts.sqlite")
 
-paste0('INSERT INTO patients (fname, lname, rxr, dob) VALUES ("', 
-       p1$fname, '","', 
-       p1$lname, '","', 
-       p1$rxr, '","', 
-       p1$dob, '")')
-
 dbDisconnect(dbcon)
 
 
@@ -102,4 +97,114 @@ addpatient <- function(datlist, con) {
                                           c("rxr", "lname", "fname", "sex", "dob")],
                                 stringsAsFactors = FALSE))
   }
+  
+  # Enable pipeline
+  return(datlist)
+}
+
+addprefixtoname <- function(x, prefix) {
+  paste0(prefix, x)
+}
+
+# Add spirometry
+addspiro <- function(datlist, con, sourceid) {
+  rxr_id <- dbGetQuery(con, paste0('SELECT id FROM patients WHERE rxr = "',
+                                   datlist$rxr, '"'))
+  if(nrow(rxr_id) < 1) {
+    # Error - no patient
+    error(logs, paste("Missing patient id:", datlist$rxr, " --- addspiro()"))
+    return(NA)
+  }
+  else {
+    names(rxr_id) <- "subject_id"
+    fev1s <- as.data.frame(datlist$FEV1, stringsAsFactors = FALSE)
+    names(fev1s) <- lapply(names(fev1s), addprefixtoname, prefix='fev1_')
+    fvcs <- as.data.frame(datlist$FVC, stringsAsFactors = FALSE)
+    names(fvcs) <- lapply(names(fvcs), addprefixtoname, prefix='fvc_')
+    names(sourceid) <- "source_id"
+    tbl <- cbind(rxr_id[1], fev1s, fvcs, sourceid)
+    dbAppendTable(con, "spirometry", tbl)
+  }
+  
+  return(dbGetQuery(con, "SELECT last_insert_rowid()")[1])
+}
+
+# Get list of files in subdirectories
+list.files(".", pattern = "*.pdf", recursive = TRUE)
+p1 <- pdf_text("data/pft2.pdf") %>%
+  extractPFT()
+
+# Logging
+logs <- create.logger("data/pft.log", level = "DEBUG")
+
+# Process a file
+processFile <- function(pdf, recordtype, con) {
+  p1 <- pdf_text(pdf)
+  
+  if(recordtype == 'FULL_PFT') {
+    p1 <- extractPFT(p1)
+    # Check if only spiro available
+    if(is.na(p1$TLco) && is.na(p1$TLC)) recordtype = 'PFT_Spiro'
+    
+    addpatient(p1, con)
+    sourceid <- addSourceFile(con, p1$rxr, pdf, recordtype)
+    spiroid <- addspiro(p1, con, sourceid)
+    if(is.na(spiroid)) {
+      info(logs, paste("No spirometry in ", p1$rxr, " --- processFile()"))
+      return(p1$rxr)
+    }
+    
+    if(recordtype == 'FULL_PFT') {
+      purrr::map(c('TLco', 'VAsb', 'KCO', 'FRC', 'VC', 'TLC', 'RV', 'RV_TLC'), 
+                  addLungFunc, datlist=p1)
+    }
+    
+     
+    
+  }
+  
+  # Other record types here
+  
+}
+
+addLungFunc <- function(measure, datlist) {
+  if(!is.na(datlist[measure])) {
+    phys <- as.data.frame(datlist[measure], stringsAsFactors = FALSE)
+    names(phys) <- lapply(names(phys), addprefixtoname, 
+                          prefix=paste0(tolower(measure), "_"))
+  }
+  else phys <- NULL
+  
+  return(phys)
+}
+
+# Add source for record
+addSourceFile <- function(con, rxr, pdf, study_type){
+  rxr_id <- dbGetQuery(con, paste0('SELECT id FROM patients WHERE rxr = "',
+                                   rxr, '"'))
+  if(nrow(rxr_id) < 1) {
+    # Error - no patient
+    error(logs, paste("Missing patient id:", rxr, " --- addSourceFile()"))
+    return(NA)
+  }
+  
+  study_id <- dbGetQuery(con, paste0('SELECT id FROM studies WHERE tag = "',
+                                    study_type, '"'))
+  if(nrow(study_id) < 1) {
+    error(logs, paste("Invalid study tag:", study_type, " --- addSourceFile()"))
+    return(NA)
+  }
+  
+  extracttime <- as.character(now())
+  dbAppendTable(con, "datasource",
+                data.frame(import_date = extracttime, 
+                           source_file = "data/pft2.pdf",
+                           subject_id = rxr_id[1],
+                           study_type = study_id,
+                           stringsAsFactors = FALSE))
+  
+  ret <- dbGetQuery(con, paste0('SELECT id FROM datasource WHERE import_date = "',
+                                extracttime, '"'))[1]
+  
+  return(ret)
 }
