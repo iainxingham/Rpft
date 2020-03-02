@@ -15,7 +15,7 @@ lung_func <- list(FEV1 = list('FEV1', 'FEV1.*'),
                   VC = list('VC', '(?<!F)VC.*'),
                   TLC = list('TLC', 'TLC.*'),
                   RV = list('RV', 'RV .*'),
-                  RV_TLC = list('RV_TLC', 'RV/TLC.*'))
+                  RV_TLC = list('RVTLC', 'RV/TLC.*'))
 
 extractlungfunc <- function(measurement, regex_str, txt) {
   if(measurement == 'FEV1')
@@ -106,6 +106,29 @@ addprefixtoname <- function(x, prefix) {
   paste0(prefix, x)
 }
 
+sortspirovalnames <- function(x, prefix) {
+
+  x <- str_match(vals, "Measured_pre")
+  if(!is.na(x[1,1])) return(paste0(prefix, "pre"))
+  x <- str_match(vals, "Predicted")
+  if(!is.na(x[1,1])) return(paste0(prefix, "pred"))  
+  x <- str_match(vals, "Percent_pred_pre")
+  if(!is.na(x[1,1])) return(paste0(prefix, "pre_percent_pred"))
+  x <- str_match(vals, "Measured_post")
+  if(!is.na(x[1,1])) return(paste0(prefix, "post"))
+  
+  x <- str_match(vals, "Percent_pred_post")
+  if(!is.na(x[1,1])) return(paste0(prefix, "post_percent_pred"))
+  x <- str_match(vals, "Percent_change")
+  if(!is.na(x[1,1])) return(paste0(prefix, "percent_change"))  
+  x <- str_match(vals, "SR_pre")
+  if(!is.na(x[1,1])) return(paste0(prefix, "pre_SR"))
+  x <- str_match(vals, "SR_post")
+  if(!is.na(x[1,1])) return(paste0(prefix, "post_SR")) 
+  
+  return("Error")
+}
+
 # Add spirometry
 addspiro <- function(datlist, con, sourceid) {
   rxr_id <- dbGetQuery(con, paste0('SELECT id FROM patients WHERE rxr = "',
@@ -118,11 +141,13 @@ addspiro <- function(datlist, con, sourceid) {
   else {
     names(rxr_id) <- "subject_id"
     fev1s <- as.data.frame(datlist$FEV1, stringsAsFactors = FALSE)
-    names(fev1s) <- lapply(names(fev1s), addprefixtoname, prefix='fev1_')
+    names(fev1s) <- lapply(names(fev1s), sortspirovalnames, prefix='fev1_')
     fvcs <- as.data.frame(datlist$FVC, stringsAsFactors = FALSE)
-    names(fvcs) <- lapply(names(fvcs), addprefixtoname, prefix='fvc_')
+    names(fvcs) <- lapply(names(fvcs), sortspirovalnames, prefix='fvc_')
     names(sourceid) <- "source_id"
-    tbl <- cbind(rxr_id[1], fev1s, fvcs, sourceid)
+    studydate <- datlist$date
+    names(studydate) <- "study_date"
+    tbl <- cbind(rxr_id[1], fev1s, fvcs, sourceid, studydate[1])
     dbAppendTable(con, "spirometry", tbl)
   }
   
@@ -155,12 +180,19 @@ processFile <- function(pdf, recordtype, con) {
     }
     
     if(recordtype == 'FULL_PFT') {
-      purrr::map(c('TLco', 'VAsb', 'KCO', 'FRC', 'VC', 'TLC', 'RV', 'RV_TLC'), 
-                  addLungFunc, datlist=p1)
+      names(spiroid) <- "spiro_id"
+      names(sourceid) <- "source_id"
+      rxrid <- p1$rxr
+      names(rxrid) <- "subject_id"
+      studydate <- p1$date
+      names(studydate) <- "study_date"
+      vals <- purrr::map_dfc(c('TLco', 'VAsb', 'KCO', 'FRC', 'VC', 'TLC', 'RV', 'RV_TLC'), 
+                           addLungFunc, datlist=p1)
+      names(vals) <- sapply(names(vals), sortlungfuncvalnames)
+      tbl <- cbind(rxrid[1], spiroid, sourceid, studydate[1], vals)
+      dbAppendTable(con, "lungfunc", tbl)
     }
-    
-     
-    
+ 
   }
   
   # Other record types here
@@ -169,7 +201,7 @@ processFile <- function(pdf, recordtype, con) {
 
 addLungFunc <- function(measure, datlist) {
   if(!is.na(datlist[measure])) {
-    phys <- as.data.frame(datlist[measure], stringsAsFactors = FALSE)
+    phys <- as.data.frame(datlist[[measure]], stringsAsFactors = FALSE)
     names(phys) <- lapply(names(phys), addprefixtoname, 
                           prefix=paste0(tolower(measure), "_"))
   }
@@ -207,4 +239,24 @@ addSourceFile <- function(con, rxr, pdf, study_type){
                                 extracttime, '"'))[1]
   
   return(ret)
+}
+
+sortlungfuncvalnames <- function(vals) {
+  # Lung func
+  # x_Measured_pre -> x
+  # x_Predicted -> x_pred
+  # x_Percent_pred_pre -> x_percent_pred
+  # x_SR_pre -> x_SR
+  # Other x -> drop
+
+  x <- str_match(vals, "([:alnum:]*)_Measured_pre")
+  if(!is.na(x[1,2])) return(x[1,2])
+  x <- str_match(vals, "([:alnum:]*_)Predicted")
+  if(!is.na(x[1,2])) return(paste0(x[1,2], "pred"))  
+  x <- str_match(vals, "([:alnum:]*_)Percent_pred_pre")
+  if(!is.na(x[1,2])) return(paste0(x[1,2], "percent_pred"))
+  x <- str_match(vals, "([:alnum:]*_)SR_pre")
+  if(!is.na(x[1,2])) return(paste0(x[1,2], "SR"))
+  
+  return("Error")
 }
