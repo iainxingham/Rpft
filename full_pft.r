@@ -106,7 +106,7 @@ addprefixtoname <- function(x, prefix) {
   paste0(prefix, x)
 }
 
-sortspirovalnames <- function(x, prefix) {
+sortspirovalnames <- function(vals, prefix) {
 
   x <- str_match(vals, "Measured_pre")
   if(!is.na(x[1,1])) return(paste0(prefix, "pre"))
@@ -145,9 +145,9 @@ addspiro <- function(datlist, con, sourceid) {
     fvcs <- as.data.frame(datlist$FVC, stringsAsFactors = FALSE)
     names(fvcs) <- lapply(names(fvcs), sortspirovalnames, prefix='fvc_')
     names(sourceid) <- "source_id"
-    studydate <- datlist$date
-    names(studydate) <- "study_date"
-    tbl <- cbind(rxr_id[1], fev1s, fvcs, sourceid, studydate[1])
+    study_date <- datlist$date
+    names(study_date) <- "study_date"
+    tbl <- cbind(rxr_id[1], fev1s, fvcs, sourceid, study_date)
     dbAppendTable(con, "spirometry", tbl)
   }
   
@@ -158,6 +158,8 @@ addspiro <- function(datlist, con, sourceid) {
 list.files(".", pattern = "*.pdf", recursive = TRUE)
 p1 <- pdf_text("data/pft2.pdf") %>%
   extractPFT()
+
+purrr::walk(pftFiles, processFile, recordtype = 'FULL_PFT', con = dbcon)
 
 # Logging
 logs <- create.logger("data/pft.log", level = "DEBUG")
@@ -189,7 +191,8 @@ processFile <- function(pdf, recordtype, con) {
       vals <- purrr::map_dfc(c('TLco', 'VAsb', 'KCO', 'FRC', 'VC', 'TLC', 'RV', 'RV_TLC'), 
                            addLungFunc, datlist=p1)
       names(vals) <- sapply(names(vals), sortlungfuncvalnames)
-      tbl <- cbind(rxrid[1], spiroid, sourceid, studydate[1], vals)
+      tbl <- cbind(rxrid, spiroid, sourceid, studydate, vals)
+      print(tbl)
       dbAppendTable(con, "lungfunc", tbl)
     }
  
@@ -228,10 +231,12 @@ addSourceFile <- function(con, rxr, pdf, study_type){
   }
   
   extracttime <- as.character(now())
+  names(rxr_id) <- "subject_id"
+  names(study_id) <- "study_type"
   dbAppendTable(con, "datasource",
                 data.frame(import_date = extracttime, 
-                           source_file = "data/pft2.pdf",
-                           subject_id = rxr_id[1],
+                           source_file = pdf,
+                           subject_id = rxr_id,
                            study_type = study_id,
                            stringsAsFactors = FALSE))
   
